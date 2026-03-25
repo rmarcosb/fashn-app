@@ -2,26 +2,43 @@
 
 import { useState, useRef } from "react";
 
-type JobResult = {
-  key: string;
-  status: string;
-  url: string | null;
-};
+type Job = { key: string; jobId: string };
 
-const LABELS: Record<string, string> = {
-  lifestyle_1: "Lifestyle",
-  product_1: "Producto 1",
-  product_2: "Producto 2",
-  product_3: "Producto 3",
-  product_4: "Producto 4",
-};
+// Runs silently in the background — polls fashn.ai and uploads to Blob.
+// Never touches React state, so the UI stays fully responsive.
+async function pollInBackground(jobs: Job[], submittedStyle: string) {
+  const pending = new Set<string>(jobs.map((j) => j.key));
+  let retries = 0;
+  const MAX_RETRIES = 40; // ~160 s total
+
+  while (pending.size > 0 && retries < MAX_RETRIES) {
+    await new Promise((r) => setTimeout(r, 4000));
+    retries++;
+
+    try {
+      const res = await fetch(
+        `/api/status?style=${encodeURIComponent(submittedStyle)}&jobs=${encodeURIComponent(JSON.stringify(jobs))}`
+      );
+      if (!res.ok) continue;
+      const { results } = await res.json();
+
+      for (const r of results as { key: string; status: string }[]) {
+        if ((r.status === "completed" || r.status === "failed") && pending.has(r.key)) {
+          pending.delete(r.key);
+        }
+      }
+    } catch {
+      // silently retry
+    }
+  }
+}
 
 export default function Generator() {
   const [style, setStyle] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [results, setResults] = useState<JobResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -29,7 +46,7 @@ export default function Generator() {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    setResults([]);
+    setSent(false);
     setError(null);
 
     const reader = new FileReader();
@@ -64,9 +81,8 @@ export default function Generator() {
     if (!style.trim()) { setError("Escribe un nombre de estilo."); return; }
     if (!file) { setError("Selecciona una foto."); return; }
 
-    setLoading(true);
+    setSubmitting(true);
     setError(null);
-    setResults([]);
 
     try {
       const form = new FormData();
@@ -80,41 +96,40 @@ export default function Generator() {
       }
       const { jobs, style: submittedStyle } = await submitRes.json();
 
-      // Poll until all 5 complete
-      const pending = new Set<string>(jobs.map((j: { key: string }) => j.key));
-      const completed: JobResult[] = [];
+      // Fire-and-forget: poll & upload to Blob without blocking the UI
+      void pollInBackground(jobs, submittedStyle);
 
-      while (pending.size > 0) {
-        await new Promise((r) => setTimeout(r, 4000));
+      // Immediately reset the form and show confirmation
+      setSent(true);
+      setStyle("");
+      setPreview(null);
+      setFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+      if (cameraRef.current) cameraRef.current.value = "";
 
-        const pollRes = await fetch(
-          `/api/status?style=${encodeURIComponent(submittedStyle)}&jobs=${encodeURIComponent(JSON.stringify(jobs))}`
-        );
-        if (!pollRes.ok) continue;
-        const { results: polled } = await pollRes.json();
-
-        for (const r of polled as JobResult[]) {
-          if ((r.status === "completed" || r.status === "failed") && pending.has(r.key)) {
-            pending.delete(r.key);
-            completed.push(r);
-            setResults([...completed]);
-          }
-        }
-      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error inesperado.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
-
-  const done = results.filter((r) => r.url).length;
-  const total = 5;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center px-4 py-10">
       <h1 className="text-2xl font-bold tracking-tight mb-1">fashn.ai</h1>
       <p className="text-neutral-400 text-sm mb-8">Flat lay → 5 fotos e-commerce</p>
+
+      {/* Success banner */}
+      {sent && (
+        <div className="w-full max-w-md mb-6 bg-green-950 border border-green-700 rounded-xl px-4 py-4 text-center">
+          <p className="text-green-400 font-semibold text-sm mb-1">
+            ✓ Imágenes enviadas a la base de datos
+          </p>
+          <p className="text-green-600 text-xs">
+            Ya puedes subir otra imagen
+          </p>
+        </div>
+      )}
 
       {/* Style input */}
       <div className="w-full max-w-md mb-4">
@@ -124,7 +139,7 @@ export default function Generator() {
         <input
           type="text"
           value={style}
-          onChange={(e) => setStyle(e.target.value)}
+          onChange={(e) => { setStyle(e.target.value); setSent(false); }}
           placeholder="ej. polo-azul-verano"
           className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-white placeholder:text-neutral-600"
         />
@@ -139,9 +154,7 @@ export default function Generator() {
           Foto de la prenda
         </label>
         {/* Preview area */}
-        <div
-          className="w-full border-2 border-dashed border-neutral-700 rounded-xl overflow-hidden aspect-square flex items-center justify-center bg-neutral-900 mb-3"
-        >
+        <div className="w-full border-2 border-dashed border-neutral-700 rounded-xl overflow-hidden aspect-square flex items-center justify-center bg-neutral-900 mb-3">
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={preview} alt="Preview" className="w-full h-full object-cover" />
@@ -185,60 +198,11 @@ export default function Generator() {
       {/* Generate button */}
       <button
         onClick={handleGenerate}
-        disabled={loading}
-        className="w-full max-w-md bg-white text-black font-semibold rounded-xl py-4 text-base disabled:opacity-40 disabled:cursor-not-allowed mb-6"
+        disabled={submitting}
+        className="w-full max-w-md bg-white text-black font-semibold rounded-xl py-4 text-base disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        {loading ? `Generando… ${done}/${total}` : "Generar 5 fotos →"}
+        {submitting ? "Enviando…" : "Generar 5 fotos →"}
       </button>
-
-      {/* Progress bar */}
-      {loading && (
-        <div className="w-full max-w-md mb-6">
-          <div className="h-1 bg-neutral-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-white rounded-full transition-all duration-500"
-              style={{ width: `${(done / total) * 100}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Results */}
-      {results.filter((r) => r.url).length > 0 && (
-        <div className="w-full max-w-md">
-          <h2 className="text-xs text-neutral-400 uppercase tracking-widest mb-3">
-            Resultados — {style}
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            {results
-              .filter((r) => r.url)
-              .map((r) => (
-                <a
-                  key={r.key}
-                  href={r.url!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block rounded-xl overflow-hidden bg-neutral-800"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={r.url!}
-                    alt={LABELS[r.key] ?? r.key}
-                    className="w-full object-cover"
-                  />
-                  <div className="px-3 py-2 text-xs text-neutral-400">
-                    {LABELS[r.key] ?? r.key}
-                  </div>
-                </a>
-              ))}
-          </div>
-          {!loading && done === total && (
-            <p className="text-center text-sm text-neutral-400 mt-6">
-              ✓ {total} fotos guardadas en la nube
-            </p>
-          )}
-        </div>
-      )}
     </main>
   );
 }
