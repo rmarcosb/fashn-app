@@ -42,8 +42,8 @@ export async function GET(req: NextRequest) {
         const imgRes = await fetch(imageUrl);
         const imgBuffer = await imgRes.arrayBuffer();
 
-        // Upload to Vercel Blob
-        const filename = `${slug}/${key}.jpg`;
+        // Upload to Vercel Blob — e.g. jv13t/jv13t_lifestyle_1.jpg
+        const filename = `${slug}/${slug}_${key}.jpg`;
         const blob = await put(filename, imgBuffer, {
           access: "public",
           contentType: "image/jpeg",
