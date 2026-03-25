@@ -24,6 +24,7 @@ export default function Generator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -137,33 +138,41 @@ export default function Generator() {
         <label className="block text-xs text-neutral-400 mb-1 uppercase tracking-widest">
           Foto de la prenda
         </label>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="w-full border-2 border-dashed border-neutral-700 rounded-xl overflow-hidden aspect-square flex items-center justify-center bg-neutral-900"
+        {/* Preview area */}
+        <div
+          className="w-full border-2 border-dashed border-neutral-700 rounded-xl overflow-hidden aspect-square flex items-center justify-center bg-neutral-900 mb-3"
         >
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={preview}
-              alt="Preview"
-              className="w-full h-full object-cover"
-            />
+            <img src={preview} alt="Preview" className="w-full h-full object-cover" />
           ) : (
             <div className="text-center text-neutral-500 px-4">
-              <div className="text-4xl mb-2">📷</div>
-              <div className="text-sm">Toca para seleccionar foto</div>
-              <div className="text-xs mt-1 text-neutral-600">JPG, PNG, WebP</div>
+              <div className="text-4xl mb-2">🖼️</div>
+              <div className="text-sm">La foto aparecerá aquí</div>
             </div>
           )}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleFileChange}
-        />
+        </div>
+
+        {/* Camera / Gallery buttons */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            className="flex items-center justify-center gap-2 bg-neutral-800 border border-neutral-700 rounded-xl py-3 text-sm font-medium"
+          >
+            📷 Tomar foto
+          </button>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="flex items-center justify-center gap-2 bg-neutral-800 border border-neutral-700 rounded-xl py-3 text-sm font-medium"
+          >
+            🖼️ Galería
+          </button>
+        </div>
+
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileChange} />
+        <input ref={fileRef}   type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       </div>
 
       {/* Error */}
