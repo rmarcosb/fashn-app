@@ -41,49 +41,54 @@ const JOBS = [
 ];
 
 export async function POST(req: NextRequest) {
-  const formData = await req.formData();
-  const style = (formData.get("style") as string)?.trim();
-  const file = formData.get("image") as File;
+  try {
+    const formData = await req.formData();
+    const style = (formData.get("style") as string)?.trim();
+    const file = formData.get("image") as File;
 
-  if (!style || !file) {
-    return NextResponse.json({ error: "Faltan campos: style e image." }, { status: 400 });
-  }
+    if (!style || !file) {
+      return NextResponse.json({ error: "Faltan campos: style e image." }, { status: 400 });
+    }
 
-  // Convert image to base64 data URI
-  const bytes = await file.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-  const mimeType = file.type || "image/jpeg";
-  const b64 = `data:${mimeType};base64,${buffer.toString("base64")}`;
+    // Convert image to base64 data URI
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const mimeType = file.type || "image/jpeg";
+    const b64 = `data:${mimeType};base64,${buffer.toString("base64")}`;
 
-  // Submit all 5 jobs to fashn.ai
-  const submissions = await Promise.all(
-    JOBS.map(async (job) => {
-      const res = await fetch(`${API_BASE}/run`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model_name: "product-to-model",
-          inputs: {
-            product_image: b64,
-            prompt: job.prompt,
-            aspect_ratio: job.aspect_ratio,
-            resolution: "1k",
-            output_format: "jpeg",
+    // Submit all 5 jobs to fashn.ai
+    const submissions = await Promise.all(
+      JOBS.map(async (job) => {
+        const res = await fetch(`${API_BASE}/run`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${API_KEY}`,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            model_name: "product-to-model",
+            inputs: {
+              product_image: b64,
+              prompt: job.prompt,
+              aspect_ratio: job.aspect_ratio,
+              resolution: "1k",
+              output_format: "jpeg",
+            },
+          }),
+        });
 
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(`[${job.key}] Submit failed: ${JSON.stringify(data)}`);
-      }
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(`fashn.ai error en ${job.key}: ${data.error ?? data.detail ?? JSON.stringify(data)}`);
+        }
 
-      return { key: job.key, jobId: data.id };
-    })
-  );
+        return { key: job.key, jobId: data.id };
+      })
+    );
 
-  return NextResponse.json({ jobs: submissions, style });
+    return NextResponse.json({ jobs: submissions, style });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Error interno del servidor.";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }

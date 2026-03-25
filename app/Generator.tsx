@@ -28,10 +28,35 @@ export default function Generator() {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
     setResults([]);
     setError(null);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target?.result as string;
+      setPreview(dataUrl);
+
+      // Compress via canvas to stay under Vercel's 4.5 MB body limit
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1024;
+        let { width: w, height: h } = img;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(
+          (blob) => { if (blob) setFile(new File([blob], f.name, { type: "image/jpeg" })); },
+          "image/jpeg", 0.85
+        );
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(f);
   }
 
   async function handleGenerate() {
